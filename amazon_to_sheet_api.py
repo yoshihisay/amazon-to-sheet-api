@@ -51,5 +51,4 @@ def amazon_to_sheet():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-if __name__ == '__main__':
-    app.run(port=8080)
+app = app  # WSGI用のエントリーポイント
