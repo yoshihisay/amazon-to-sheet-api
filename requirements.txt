@@ -1,5 +1,5 @@
 Flask
 gspread
 oauth2client
-amazon-paapi
+amazon_paapi
 python-dateutil
