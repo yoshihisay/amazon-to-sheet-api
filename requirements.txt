@@ -2,3 +2,4 @@ Flask
 gspread
 oauth2client
 git+https://github.com/sergioteula/python-amazon-paapi.git
+gunicorn
