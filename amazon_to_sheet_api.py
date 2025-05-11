@@ -22,11 +22,11 @@ def amazon_to_sheet():
 
         # ✅ Amazon API 認証（できれば環境変数へ移行）
         amazon = AmazonApi(
-            access_key=os.environ.get('AMAZON_ACCESS_KEY', 'AKPAWNVMBA1746859276'),
-            secret_key=os.environ.get('AMAZON_SECRET_KEY', '1jVIahJObZ5zgRe65uuchg8cLHVu+ZAblCd+Hb2g'),
-            associate_tag=os.environ.get('AMAZON_ASSOCIATE_TAG', 'marumooon0210-22'),
-            country='JP'
-        )
+    os.environ.get('AMAZON_ACCESS_KEY', 'AKPAWNVMBA1746859276'),
+    os.environ.get('AMAZON_SECRET_KEY', '1jVIahJObZ5zgRe65uuchg8cLHVu+ZAblCd+Hb2g'),
+    os.environ.get('AMAZON_ASSOCIATE_TAG', 'marumooon0210-22'),
+    'JP'
+)
 
         # スプレッドシート書き込み開始位置
         col_values = worksheet.col_values(2)
