@@ -29,9 +29,9 @@ def search_and_write(keyword, preorder_only=False, start_page=1, sheet_name="シ
         existing_urls = set(worksheet.col_values(3))  # C列がURL
 
         # Amazon API 認証
-        access_key = os.environ.get('AKPAWNVMBA1746859276')
-        secret_key = os.environ.get('1jVIahJObZ5zgRe65uuchg8cLHVu+ZAblCd+Hb2g')
-        partner_tag = os.environ.get('marumooon0210-22')
+        access_key = os.environ.get('AMAZON_ACCESS_KEY')
+        secret_key = os.environ.get('AMAZON_SECRET_KEY')
+        partner_tag = os.environ.get('AMAZON_ASSOCIATE_TAG')
         print(f"🔑 Amazon認証情報 → access_key: {bool(access_key)}, secret_key: {bool(secret_key)}, tag: {partner_tag}")
 
         amazon = AmazonApi(access_key, secret_key, partner_tag, 'JP')
