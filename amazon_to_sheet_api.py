@@ -1,61 +1,55 @@
+from flask import Flask, request, jsonify
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from amazon_paapi import AmazonApi
 from datetime import datetime
 from dateutil import parser
+import os
+import json
 
-# 🔐 Google Sheets API 認証
-scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-credentials = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
-gc = gspread.authorize(credentials)
+app = Flask(__name__)
 
-# 📄 スプレッドシートを開く
-spreadsheet = gc.open("スクレイピング検証")
-worksheet = spreadsheet.sheet1
+@app.route('/amazon-to-sheet', methods=['POST'])
+def amazon_to_sheet():
+    try:
+        # ✅ Google Sheets 認証（credentials.json → 環境変数から）
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        credentials_json = os.environ.get('GOOGLE_CREDENTIALS')
+        credentials_dict = json.loads(credentials_json)
+        credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
+        gc = gspread.authorize(credentials)
+        worksheet = gc.open("スクレイピング検証").sheet1
 
-# 🔐 Amazon PA-API 認証情報
-access_key = 'AKPAWNVMBA1746859276'
-secret_key = '1jVIahJObZ5zgRe65uuchg8cLHVu+ZAblCd+Hb2g'
-associate_tag = 'marumooon0210-22'
-country = 'JP'
+        # ✅ Amazon API 認証（できれば環境変数へ移行）
+        amazon = AmazonApi(
+            access_key=os.environ.get('AMAZON_ACCESS_KEY', 'AKPAWNVMBA1746859276'),
+            secret_key=os.environ.get('AMAZON_SECRET_KEY', '1jVIahJObZ5zgRe65uuchg8cLHVu+ZAblCd+Hb2g'),
+            associate_tag=os.environ.get('AMAZON_ASSOCIATE_TAG', 'marumooon0210-22'),
+            country='JP'
+        )
 
-# 🔍 Amazon API インスタンス
-amazon = AmazonApi(access_key, secret_key, associate_tag, country)
+        # スプレッドシート書き込み開始位置
+        col_values = worksheet.col_values(2)
+        row_index = len(col_values) + 1
 
-# 🧭 空白行を探す（B列の最終データ行 + 1）
-def get_next_empty_row(col_letter='B'):
-    col_values = worksheet.col_values(ord(col_letter.upper()) - 64)
-    return len(col_values) + 1
+        for page in range(1, 4):
+            response = amazon.search_items(keywords='マテル', search_index='All', item_count=10, item_page=page)
+            for item in response.items:
+                if not item.item_info.title or not item.item_info.product_info.release_date:
+                    continue
+                title = item.item_info.title.display_value
+                url = item.detail_page_url.split('?')[0]
+                try:
+                    release_str = parser.isoparse(item.item_info.product_info.release_date.display_value).strftime('%Y-%m-%d')
+                except:
+                    continue
+                worksheet.update(values=[[title, url, release_str]], range_name=f'B{row_index}:D{row_index}')
+                row_index += 1
 
-row_index = get_next_empty_row()
+        return jsonify({"status": "success", "message": "Data written to sheet."})
 
-# 🔄 複数ページ（1〜3ページ = 最大30件）
-for page in range(1, 4):
-    response = amazon.search_items(
-        keywords='マテル',
-        search_index='All',
-        item_count=10,
-        item_page=page
-    )
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
-    items = response.items
-    print(f"{page}ページ目: {len(items)} 件")
-
-    for item in items:
-        title = item.item_info.title.display_value if item.item_info.title else 'N/A'
-        url = item.detail_page_url.split('?')[0] if item.detail_page_url else 'N/A'
-
-        if item.item_info and item.item_info.product_info and item.item_info.product_info.release_date:
-            raw_release_str = item.item_info.product_info.release_date.display_value
-            try:
-                parsed_date = parser.isoparse(raw_release_str)
-                release_str = parsed_date.strftime('%Y-%m-%d')
-            except Exception:
-                continue
-
-            # B列（商品名）、C列（URL）、D列（発売日）に出力
-            worksheet.update(
-                values=[[title, url, release_str]],
-                range_name=f'B{row_index}:D{row_index}'
-            )
-            row_index += 1
+if __name__ == '__main__':
+    app.run(port=8080)
