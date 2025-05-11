@@ -1,4 +1,4 @@
 Flask
 gspread
 oauth2client
-python-paapi
+git+https://github.com/sergioteula/python-amazon-paapi.git
