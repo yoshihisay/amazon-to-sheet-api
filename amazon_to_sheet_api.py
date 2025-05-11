@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from amazon_paapi import AmazonApi
-from datetime import datetime
+from datetime import datetime, timezone  # 修正ポイント
 from dateutil import parser
 import os
 import json
@@ -12,7 +12,6 @@ app = Flask(__name__)
 # 🔧 共通処理関数：Amazon検索 → スプレッドシート出力（重複除外・ページ制御・予約対応・シート指定）
 def search_and_write(keyword, preorder_only=False, start_page=1, sheet_name="シート1"):
     try:
-        # 💬 ログ出力
         print(f"🔍 キーワード: {keyword}")
         print(f"📄 出力先シート名: {sheet_name}")
         print(f"📦 開始ページ: {start_page}")
@@ -26,19 +25,19 @@ def search_and_write(keyword, preorder_only=False, start_page=1, sheet_name="シ
         gc = gspread.authorize(credentials)
 
         worksheet = gc.open("スクレイピング検証").worksheet(sheet_name)
-        existing_urls = set(worksheet.col_values(3))  # C列がURL
+        existing_urls = set(worksheet.col_values(3))  # C列 = URL
 
         # Amazon API 認証
         access_key = os.environ.get('AMAZON_ACCESS_KEY')
         secret_key = os.environ.get('AMAZON_SECRET_KEY')
         partner_tag = os.environ.get('AMAZON_ASSOCIATE_TAG')
-        print(f"🔑 Amazon認証情報 → access_key: {bool(access_key)}, secret_key: {bool(secret_key)}, tag: {partner_tag}")
+        print(f"🔑 Amazon認証 → access_key: {bool(access_key)}, secret_key: {bool(secret_key)}, tag: {partner_tag}")
 
         amazon = AmazonApi(access_key, secret_key, partner_tag, 'JP')
 
         col_values = worksheet.col_values(2)
         row_index = len(col_values) + 1
-        today = datetime.today()
+        today = datetime.now(timezone.utc)  # 修正：タイムゾーン付き現在時刻
 
         for page in range(start_page, start_page + 3):
             print(f"📄 ページ {page} を検索中…")
@@ -97,5 +96,5 @@ def extract_preorder():
     sheet_name = data.get("sheet_name", "シート1")
     return search_and_write(keyword, preorder_only=True, start_page=start_page, sheet_name=sheet_name)
 
-# WSGI用（Render）
+# Render用WSGI
 app = app
