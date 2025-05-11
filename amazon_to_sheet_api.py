@@ -2,16 +2,18 @@ from flask import Flask, request, jsonify
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from amazon_paapi import AmazonApi
-from datetime import datetime, timezone  # 修正ポイント
+from datetime import datetime
 from dateutil import parser
 import os
 import json
+import traceback
 
 app = Flask(__name__)
 
 # 🔧 共通処理関数：Amazon検索 → スプレッドシート出力（重複除外・ページ制御・予約対応・シート指定）
 def search_and_write(keyword, preorder_only=False, start_page=1, sheet_name="シート1"):
     try:
+        # ログ出力
         print(f"🔍 キーワード: {keyword}")
         print(f"📄 出力先シート名: {sheet_name}")
         print(f"📦 開始ページ: {start_page}")
@@ -31,13 +33,13 @@ def search_and_write(keyword, preorder_only=False, start_page=1, sheet_name="シ
         access_key = os.environ.get('AMAZON_ACCESS_KEY')
         secret_key = os.environ.get('AMAZON_SECRET_KEY')
         partner_tag = os.environ.get('AMAZON_ASSOCIATE_TAG')
-        print(f"🔑 Amazon認証 → access_key: {bool(access_key)}, secret_key: {bool(secret_key)}, tag: {partner_tag}")
+        print(f"🔑 Amazon認証: access_key={bool(access_key)}, secret_key={bool(secret_key)}, tag={partner_tag}")
 
         amazon = AmazonApi(access_key, secret_key, partner_tag, 'JP')
 
         col_values = worksheet.col_values(2)
         row_index = len(col_values) + 1
-        today = datetime.now(timezone.utc)  # 修正：タイムゾーン付き現在時刻
+        today = datetime.now().astimezone()  # ⚠️ awareなdatetimeへ修正
 
         for page in range(start_page, start_page + 3):
             print(f"📄 ページ {page} を検索中…")
@@ -48,7 +50,7 @@ def search_and_write(keyword, preorder_only=False, start_page=1, sheet_name="シ
 
                 try:
                     release_date = parser.isoparse(item.item_info.product_info.release_date.display_value)
-                    if preorder_only and release_date <= today:
+                    if preorder_only and release_date.astimezone() <= today:
                         continue
                     release_str = release_date.strftime('%Y-%m-%d')
                 except Exception as e:
@@ -72,29 +74,30 @@ def search_and_write(keyword, preorder_only=False, start_page=1, sheet_name="シ
             "message": f"'{keyword}' の商品{'（予約のみ）' if preorder_only else ''}をシート「{sheet_name}」に出力しました。重複除外済み。"
         })
 
-    except Exception as e:
-        print(f"❌ エラー発生: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+    except Exception:
+        print("❌ エラー発生:")
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": "内部サーバーエラー"}), 500
 
-# ✅ 通常商品（全件）
+# 通常商品
 @app.route('/amazon-to-sheet', methods=['POST'])
 def amazon_to_sheet():
     data = request.get_json()
-    print("📩 リクエスト受信: ", data)
+    print("📩 リクエスト受信:", data)
     keyword = data.get("keyword", "マテル")
-    start_page = int(data.get("start_page", 1))
+    start_page = int(data.get("start_page", 1) or 1)
     sheet_name = data.get("sheet_name", "シート1")
     return search_and_write(keyword, start_page=start_page, sheet_name=sheet_name)
 
-# ✅ 予約商品のみ
+# 予約商品のみ
 @app.route('/preorder', methods=['POST'])
 def extract_preorder():
     data = request.get_json()
-    print("📩 リクエスト受信（予約）: ", data)
+    print("📩 リクエスト受信（予約）:", data)
     keyword = data.get("keyword", "マテル")
-    start_page = int(data.get("start_page", 1))
+    start_page = int(data.get("start_page", 1) or 1)
     sheet_name = data.get("sheet_name", "シート1")
     return search_and_write(keyword, preorder_only=True, start_page=start_page, sheet_name=sheet_name)
 
-# Render用WSGI
+# WSGI用
 app = app
