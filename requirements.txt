@@ -1,5 +1,5 @@
 Flask
 gspread
 oauth2client
-git+https://github.com/sergioteula/python-amazon-paapi.git@master#egg=python-amazon-paapi
 gunicorn
+git+https://github.com/sergioteula/python-amazon-paapi.git@master#egg=amazon_paapi
