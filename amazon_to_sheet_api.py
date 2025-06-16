@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from python_amazon_paapi import AmazonAPI
+from amazon_paapi import AmazonAPI
 import os
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
