@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from amazon_paapi.helpers import Amazonapi  # ✅ 最新版は helpers から Amazonapi
+from amazon_paapi import AmazonAPI
 import os
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -22,7 +22,7 @@ gc = gspread.authorize(credentials)
 
 # === 通常検索・予約・割引フィルター ===
 def fetch_amazon_items_filtered(keyword, start_page=1, max_pages=10, search_index="All", filter_type="normal"):
-    amazon = Amazonapi(ACCESS_KEY, SECRET_KEY, ASSOCIATE_TAG, LOCALE)
+    amazon = AmazonAPI(ACCESS_KEY, SECRET_KEY, ASSOCIATE_TAG, LOCALE)
     items = []
     seen_urls = set()
     pages_fetched = 0
@@ -113,7 +113,7 @@ def fetch_amazon_items_filtered(keyword, start_page=1, max_pages=10, search_inde
 
 # === ASIN指定検索 ===
 def fetch_items_by_asins(asin_list):
-    amazon = Amazonapi(ACCESS_KEY, SECRET_KEY, ASSOCIATE_TAG, LOCALE)
+    amazon = AmazonAPI(ACCESS_KEY, SECRET_KEY, ASSOCIATE_TAG, LOCALE)
     items = []
     try:
         response = amazon.get_items(asin_list)
