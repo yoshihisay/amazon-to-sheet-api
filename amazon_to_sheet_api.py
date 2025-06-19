@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from amazon_paapi import AmazonAPI
+from amazon_paapi.helpers import Amazonapi  # ✅ 最新版は helpers から Amazonapi
 import os
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -20,19 +20,9 @@ scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/au
 credentials = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
 gc = gspread.authorize(credentials)
 
-# === デフォルト表示ルート（動作確認用） ===
-@app.route("/", methods=["GET"])
-def root_check():
-    return "✅ Amazon to Sheet API is running!"
-
-# === デバッグ確認用 ===
-@app.route("/debug", methods=["GET"])
-def debug():
-    return jsonify({"status": "ok", "message": "debug route working"})
-
 # === 通常検索・予約・割引フィルター ===
 def fetch_amazon_items_filtered(keyword, start_page=1, max_pages=10, search_index="All", filter_type="normal"):
-    amazon = AmazonAPI(ACCESS_KEY, SECRET_KEY, ASSOCIATE_TAG, LOCALE)
+    amazon = Amazonapi(ACCESS_KEY, SECRET_KEY, ASSOCIATE_TAG, LOCALE)
     items = []
     seen_urls = set()
     pages_fetched = 0
@@ -123,7 +113,7 @@ def fetch_amazon_items_filtered(keyword, start_page=1, max_pages=10, search_inde
 
 # === ASIN指定検索 ===
 def fetch_items_by_asins(asin_list):
-    amazon = AmazonAPI(ACCESS_KEY, SECRET_KEY, ASSOCIATE_TAG, LOCALE)
+    amazon = Amazonapi(ACCESS_KEY, SECRET_KEY, ASSOCIATE_TAG, LOCALE)
     items = []
     try:
         response = amazon.get_items(asin_list)
@@ -166,7 +156,7 @@ def write_to_sheet(sheet_name, items):
         ]
         sheet.insert_row(row, start_row + idx)
 
-# === キーワード検索エンドポイント ===
+# === APIエンドポイント ===
 @app.route("/amazon-to-sheet", methods=["POST"])
 def amazon_to_sheet():
     try:
@@ -205,9 +195,8 @@ def amazon_to_sheet():
     except Exception as e:
         print(f"❌ APIエラー: {e}")
         traceback.print_exc()
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": str(e)}), 200
 
-# === ASIN検索エンドポイント ===
 @app.route("/amazon-asin-to-sheet", methods=["POST"])
 def asin_to_sheet():
     try:
@@ -236,8 +225,8 @@ def asin_to_sheet():
     except Exception as e:
         print(f"❌ ASIN APIエラー: {e}")
         traceback.print_exc()
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": str(e)})
 
-# === Render 起動用 ===
+# === 起動（ローカル用） ===
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=10000)
