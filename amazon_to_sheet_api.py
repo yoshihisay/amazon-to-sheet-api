@@ -131,3 +131,14 @@ def amazon_asin_search():
 if __name__ == "__main__":
     app.run(debug=True)
 
+@app.route("/test-credentials")
+def test_credentials():
+    raw = os.getenv("GOOGLE_CREDENTIALS")
+    if not raw:
+        return jsonify({"error": "環境変数が読み込めません"}), 500
+    try:
+        creds_dict = json.loads(raw)
+        return jsonify({"message": "✅ 認証情報を正常に読み込みました", "client_email": creds_dict.get("client_email")})
+    except Exception as e:
+        return jsonify({"error": f"JSON読み込みエラー: {str(e)}"}), 500
+
