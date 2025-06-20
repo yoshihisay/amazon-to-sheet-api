@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 import os
+import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from amazon_paapi import AmazonApi
@@ -21,7 +22,7 @@ amazon = AmazonApi(ACCESS_KEY, SECRET_KEY, ASSOCIATE_TAG, LOCALE)
 
 # === スプレッドシートへ出力 ===
 def write_to_sheet(spreadsheet_id, sheet_name, rows, headers):
-    creds_dict = eval(GCP_CREDENTIALS_JSON)
+    creds_dict = json.loads(GCP_CREDENTIALS_JSON)  # ✅ 安全なJSONパース
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPES)
     client = gspread.authorize(creds)
     sheet = client.open_by_key(spreadsheet_id).worksheet(sheet_name)
@@ -30,11 +31,12 @@ def write_to_sheet(spreadsheet_id, sheet_name, rows, headers):
     for row in rows:
         sheet.append_row(row)
 
+# === 動作確認用ルート ===
 @app.route("/")
 def index():
-    return "Amazon to Sheet API is running!", 200
+    return "✅ Amazon to Sheet API is running!", 200
 
-# === キーワード検索API ===
+# === キーワード検索 API ===
 @app.route("/amazon-search", methods=["POST"])
 def amazon_search():
     try:
@@ -55,17 +57,17 @@ def amazon_search():
             price = item.list_price or ""
             pub_date = item.publication_date or ""
             desc = item.features[0] if item.features else ""
-
-            results.append([title, url, pub_date, price, "", "", desc])  # 一応カラム合わせ
+            results.append([title, url, pub_date, price, "", "", desc])  # カラム合わせ
 
         headers = ["商品名", "URL", "発売日", "現在価格", "元価格", "割引率", "説明"]
         write_to_sheet(spreadsheet_id, sheet_name, results, headers)
+
         return jsonify({"message": f"{len(results)} items written to sheet '{sheet_name}'"}), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# === ASINリスト検索API ===
+# === ASINリスト検索 API ===
 @app.route("/amazon-asin-search", methods=["POST"])
 def amazon_asin_search():
     try:
@@ -91,7 +93,7 @@ def amazon_asin_search():
                 list_price = offer.saving_basis.display_amount if offer and offer.saving_basis else ""
                 discount_percent = offer.savings.percentage if offer and offer.savings else ""
 
-                # 割引率を自前で算出
+                # 割引率が無い場合は手動計算
                 if not discount_percent and offer and offer.price and offer.saving_basis:
                     try:
                         current = float(offer.price.amount)
@@ -112,19 +114,20 @@ def amazon_asin_search():
                     f"{discount_percent}%" if discount_percent else "",
                     desc
                 ])
-
             except Exception as item_error:
                 print(f"⚠️ 商品処理スキップ: {item_error}")
                 continue
 
         headers = ["商品名", "URL", "発売日", "現在価格", "元価格", "割引率", "説明"]
         write_to_sheet(spreadsheet_id, sheet_name, results, headers)
+
         return jsonify({"message": f"{len(results)} items written to sheet '{sheet_name}'"}), 200
 
     except Exception as e:
         print(f"❌ ASIN検索エラー: {e}")
         return jsonify({"error": str(e)}), 500
 
+# === アプリ起動 ===
 if __name__ == "__main__":
     app.run(debug=True)
 
