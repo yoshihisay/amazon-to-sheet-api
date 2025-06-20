@@ -76,28 +76,28 @@ def amazon_asin_search():
         if not asin_list or not spreadsheet_id:
             return jsonify({"error": "Missing ASINs or spreadsheet_id"}), 400
 
+        items_response = amazon.get_items(asin_list)
+        items = items_response.items_result.items if items_response.items_result else []
+
         results = []
-
-        # ✅ 修正ポイント：複数ASINをまとめて取得
-        items_response = amazon.get_items(*asin_list)
-
-        # ✅ 修正後の安全なパース
-        if items_response and hasattr(items_response, "items"):
-            for info in items_response.items:
-                title = getattr(info, "title", "")
-                url = getattr(info, "detail_page_url", "")
-                price = getattr(info, "list_price", "")
-                pub_date = getattr(info, "publication_date", "")
-                desc = info.features[0] if getattr(info, "features", []) else ""
+        for info in items:
+            try:
+                title = info.item_info.title.display_value if info.item_info and info.item_info.title else ""
+                url = info.detail_page_url or ""
+                price = info.offers.listings[0].price.display_amount if info.offers and info.offers.listings else ""
+                pub_date = info.item_info.product_info.release_date.display_value if info.item_info.product_info and info.item_info.product_info.release_date else ""
+                desc = info.item_info.features.display_values[0] if info.item_info.features and info.item_info.features.display_values else ""
 
                 results.append([title, url, pub_date, price, desc])
-        else:
-            return jsonify({"error": "No items returned from API"}), 500
+            except Exception as item_error:
+                print(f"⚠️ 商品処理スキップ: {item_error}")
+                continue
 
         write_to_sheet(spreadsheet_id, sheet_name, results)
         return jsonify({"message": f"{len(results)} items written to sheet '{sheet_name}'"}), 200
 
     except Exception as e:
+        print(f"❌ ASIN検索エラー: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
