@@ -3,7 +3,7 @@ import os
 import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from amazon_paapi import AmazonApi  # ✅ 正しいモジュール
+from amazon_paapi import AmazonApi
 
 app = Flask(__name__)
 
@@ -15,15 +15,15 @@ LOCALE = "JP"
 
 # === Google Sheets API 認証情報 ===
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-GCP_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS")  # ✅ Renderでのキー名に一致
+GCP_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS")
 
-# === Amazon API 初期化 ===
+# === Amazon API クライアント初期化 ===
 amazon = AmazonApi(ACCESS_KEY, SECRET_KEY, ASSOCIATE_TAG, LOCALE)
 
-# === Google Sheets 書き込み処理 ===
+# === スプレッドシート出力 ===
 def write_to_sheet(spreadsheet_id, sheet_name, rows, headers):
     if not GCP_CREDENTIALS_JSON:
-        raise ValueError("❌ 環境変数 GOOGLE_CREDENTIALS が設定されていません")
+        raise ValueError("❌ GOOGLE_CREDENTIALS が設定されていません")
     creds_dict = json.loads(GCP_CREDENTIALS_JSON)
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPES)
     client = gspread.authorize(creds)
@@ -33,14 +33,22 @@ def write_to_sheet(spreadsheet_id, sheet_name, rows, headers):
     for row in rows:
         sheet.append_row(row)
 
-# === 認証テスト用エンドポイント ===
+# === テスト: Amazon APIの環境変数確認 ===
+@app.route("/test-amazon-env")
+def test_amazon_env():
+    return jsonify({
+        "ACCESS_KEY": ACCESS_KEY or "❌ None",
+        "SECRET_KEY": "✅ あり" if SECRET_KEY else "❌ なし",
+        "ASSOCIATE_TAG": ASSOCIATE_TAG or "❌ None"
+    })
+
+# === テスト: Google認証情報の確認 ===
 @app.route("/test-credentials")
 def test_credentials():
-    raw = os.getenv("GOOGLE_CREDENTIALS")
-    if not raw:
+    if not GCP_CREDENTIALS_JSON:
         return jsonify({"error": "環境変数 GOOGLE_CREDENTIALS が読み込めません"}), 500
     try:
-        creds_dict = json.loads(raw)
+        creds_dict = json.loads(GCP_CREDENTIALS_JSON)
         return jsonify({
             "message": "✅ 認証情報を正常に読み込みました",
             "client_email": creds_dict.get("client_email", "（なし）")
@@ -48,7 +56,7 @@ def test_credentials():
     except Exception as e:
         return jsonify({"error": f"JSON読み込みエラー: {str(e)}"}), 500
 
-# === ASIN検索エンドポイント ===
+# === ASIN検索で商品情報取得し、スプレッドシートに出力 ===
 @app.route("/amazon-asin-search", methods=["POST"])
 def amazon_asin_search():
     try:
@@ -58,7 +66,7 @@ def amazon_asin_search():
         sheet_name = data.get("sheet_name", "AmazonASIN出力")
 
         if not asin_list or not spreadsheet_id:
-            return jsonify({"error": "Missing ASINs or spreadsheet_id"}), 400
+            return jsonify({"error": "Missing asin_list or spreadsheet_id"}), 400
 
         items = amazon.get_items(asin_list)
 
@@ -106,7 +114,7 @@ def amazon_asin_search():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# === エントリポイント ===
+# === Flask起動 ===
 if __name__ == "__main__":
     app.run(debug=True)
 
