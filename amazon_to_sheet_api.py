@@ -12,13 +12,14 @@ SECRET_KEY = os.getenv("AMAZON_SECRET_KEY")
 ASSOCIATE_TAG = os.getenv("AMAZON_ASSOCIATE_TAG")
 LOCALE = "JP"
 
-# === Google Sheets API 設定 ===
+# === Google Sheets API 認証情報 ===
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 GCP_CREDENTIALS_JSON = os.getenv("GCP_CREDENTIALS_JSON")
 
 # === Amazon API クライアント初期化 ===
 amazon = AmazonApi(ACCESS_KEY, SECRET_KEY, ASSOCIATE_TAG, LOCALE)
 
+# === スプレッドシートへ出力 ===
 def write_to_sheet(spreadsheet_id, sheet_name, rows):
     creds_dict = eval(GCP_CREDENTIALS_JSON)
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPES)
@@ -33,6 +34,7 @@ def write_to_sheet(spreadsheet_id, sheet_name, rows):
 def index():
     return "Amazon to Sheet API is running!", 200
 
+# === キーワード検索API ===
 @app.route("/amazon-search", methods=["POST"])
 def amazon_search():
     try:
@@ -62,6 +64,7 @@ def amazon_search():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# === ASINリスト検索API ===
 @app.route("/amazon-asin-search", methods=["POST"])
 def amazon_asin_search():
     try:
@@ -75,14 +78,14 @@ def amazon_asin_search():
 
         results = []
         for asin in asin_list:
-            item = amazon.get_items(asin)
-            if item and item.items_result and item.items_result.items:
-                info = item.items_result.items[0]
-                title = info.item_info.title.display_value if info.item_info.title else ""
-                url = info.detail_page_url or ""
-                price = info.offers.listings[0].price.display_amount if info.offers and info.offers.listings else ""
-                pub_date = info.item_info.product_info.release_date.display_value if info.item_info.product_info and info.item_info.product_info.release_date else ""
-                desc = info.item_info.features.display_values[0] if info.item_info.features else ""
+            items = amazon.get_items([asin])  # ✅ get_items はリストを返す
+            if items and isinstance(items, list):
+                item = items[0]
+                title = item.title or ""
+                url = item.detail_page_url or ""
+                price = item.list_price or ""
+                pub_date = item.publication_date or ""
+                desc = item.features[0] if item.features else ""
                 results.append([title, url, pub_date, price, desc])
 
         write_to_sheet(spreadsheet_id, sheet_name, results)
@@ -93,3 +96,4 @@ def amazon_asin_search():
 
 if __name__ == "__main__":
     app.run(debug=True)
+
