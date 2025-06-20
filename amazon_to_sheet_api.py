@@ -6,17 +6,17 @@ from amazon_paapi import AmazonApi
 
 app = Flask(__name__)
 
-# Amazon API 認証情報
+# === Amazon API 認証情報 ===
 ACCESS_KEY = os.getenv("AMAZON_ACCESS_KEY")
 SECRET_KEY = os.getenv("AMAZON_SECRET_KEY")
 ASSOCIATE_TAG = os.getenv("AMAZON_ASSOCIATE_TAG")
 LOCALE = "JP"
 
-# Google Sheets 認証設定
+# === Google Sheets API 設定 ===
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-GCP_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS")
+GCP_CREDENTIALS_JSON = os.getenv("GCP_CREDENTIALS_JSON")
 
-# Amazon API クライアント
+# === Amazon API クライアント初期化 ===
 amazon = AmazonApi(ACCESS_KEY, SECRET_KEY, ASSOCIATE_TAG, LOCALE)
 
 def write_to_sheet(spreadsheet_id, sheet_name, rows):
@@ -53,6 +53,7 @@ def amazon_search():
             price = item.list_price or ""
             pub_date = item.publication_date or ""
             desc = item.features[0] if item.features else ""
+
             results.append([title, url, pub_date, price, desc])
 
         write_to_sheet(spreadsheet_id, sheet_name, results)
@@ -70,25 +71,25 @@ def amazon_asin_search():
         sheet_name = data.get("sheet_name", "AmazonASIN出力")
 
         if not asin_list or not spreadsheet_id:
-            return jsonify({"error": "ASINリストまたはスプレッドシートIDが不足しています"}), 400
-
-        items = amazon.get_items(asin_list)
+            return jsonify({"error": "Missing ASINs or spreadsheet_id"}), 400
 
         results = []
-        for item in items:
-            title = item.title or ""
-            url = item.detail_page_url or ""
-            price = item.list_price or ""
-            pub_date = item.publication_date or ""
-            desc = item.features[0] if item.features else ""
-            results.append([title, url, pub_date, price, desc])
+        for asin in asin_list:
+            item = amazon.get_items(asin)
+            if item and item.items_result and item.items_result.items:
+                info = item.items_result.items[0]
+                title = info.item_info.title.display_value if info.item_info.title else ""
+                url = info.detail_page_url or ""
+                price = info.offers.listings[0].price.display_amount if info.offers and info.offers.listings else ""
+                pub_date = info.item_info.product_info.release_date.display_value if info.item_info.product_info and info.item_info.product_info.release_date else ""
+                desc = info.item_info.features.display_values[0] if info.item_info.features else ""
+                results.append([title, url, pub_date, price, desc])
 
         write_to_sheet(spreadsheet_id, sheet_name, results)
-        return jsonify({"message": f"{len(results)} 件の商品を出力しました"}), 200
+        return jsonify({"message": f"{len(results)} items written to sheet '{sheet_name}'"}), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(debug=True)
-
