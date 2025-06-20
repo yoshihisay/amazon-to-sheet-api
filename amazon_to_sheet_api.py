@@ -13,7 +13,7 @@ SECRET_KEY = os.getenv("AMAZON_SECRET_KEY")
 ASSOCIATE_TAG = os.getenv("AMAZON_ASSOCIATE_TAG")
 LOCALE = "JP"
 
-# === Google Sheets API 認証情報 ===
+# === Google Sheets API 認証情報（Renderのキー名に合わせる）===
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 GCP_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS")
 
@@ -22,7 +22,10 @@ amazon = AmazonApi(ACCESS_KEY, SECRET_KEY, ASSOCIATE_TAG, LOCALE)
 
 # === スプレッドシートへ出力 ===
 def write_to_sheet(spreadsheet_id, sheet_name, rows, headers):
-    creds_dict = json.loads(GCP_CREDENTIALS_JSON)  # ✅ 安全なJSONパース
+    if not GCP_CREDENTIALS_JSON:
+        raise ValueError("❌ 環境変数 GOOGLE_CREDENTIALS が設定されていません")
+
+    creds_dict = json.loads(GCP_CREDENTIALS_JSON)
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPES)
     client = gspread.authorize(creds)
     sheet = client.open_by_key(spreadsheet_id).worksheet(sheet_name)
@@ -36,7 +39,22 @@ def write_to_sheet(spreadsheet_id, sheet_name, rows, headers):
 def index():
     return "✅ Amazon to Sheet API is running!", 200
 
-# === キーワード検索 API ===
+# ✅ テスト用：環境変数の読み取り確認
+@app.route("/test-credentials")
+def test_credentials():
+    raw = os.getenv("GOOGLE_CREDENTIALS")
+    if not raw:
+        return jsonify({"error": "環境変数 GOOGLE_CREDENTIALS が読み込めません"}), 500
+    try:
+        creds_dict = json.loads(raw)
+        return jsonify({
+            "message": "✅ 認証情報を正常に読み込みました",
+            "client_email": creds_dict.get("client_email", "（なし）")
+        })
+    except Exception as e:
+        return jsonify({"error": f"JSON読み込みエラー: {str(e)}"}), 500
+
+# === キーワード検索API ===
 @app.route("/amazon-search", methods=["POST"])
 def amazon_search():
     try:
@@ -57,7 +75,7 @@ def amazon_search():
             price = item.list_price or ""
             pub_date = item.publication_date or ""
             desc = item.features[0] if item.features else ""
-            results.append([title, url, pub_date, price, "", "", desc])  # カラム合わせ
+            results.append([title, url, pub_date, price, "", "", desc])
 
         headers = ["商品名", "URL", "発売日", "現在価格", "元価格", "割引率", "説明"]
         write_to_sheet(spreadsheet_id, sheet_name, results, headers)
@@ -67,7 +85,7 @@ def amazon_search():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# === ASINリスト検索 API ===
+# === ASINリスト検索API ===
 @app.route("/amazon-asin-search", methods=["POST"])
 def amazon_asin_search():
     try:
@@ -93,7 +111,7 @@ def amazon_asin_search():
                 list_price = offer.saving_basis.display_amount if offer and offer.saving_basis else ""
                 discount_percent = offer.savings.percentage if offer and offer.savings else ""
 
-                # 割引率が無い場合は手動計算
+                # 割引率の自動計算
                 if not discount_percent and offer and offer.price and offer.saving_basis:
                     try:
                         current = float(offer.price.amount)
@@ -127,18 +145,6 @@ def amazon_asin_search():
         print(f"❌ ASIN検索エラー: {e}")
         return jsonify({"error": str(e)}), 500
 
-# === アプリ起動 ===
+# === 起動 ===
 if __name__ == "__main__":
     app.run(debug=True)
-
-@app.route("/test-credentials")
-def test_credentials():
-    raw = os.getenv("GOOGLE_CREDENTIALS")
-    if not raw:
-        return jsonify({"error": "環境変数が読み込めません"}), 500
-    try:
-        creds_dict = json.loads(raw)
-        return jsonify({"message": "✅ 認証情報を正常に読み込みました", "client_email": creds_dict.get("client_email")})
-    except Exception as e:
-        return jsonify({"error": f"JSON読み込みエラー: {str(e)}"}), 500
-
