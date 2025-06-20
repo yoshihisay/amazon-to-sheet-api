@@ -77,16 +77,22 @@ def amazon_asin_search():
             return jsonify({"error": "Missing ASINs or spreadsheet_id"}), 400
 
         results = []
-        for asin in asin_list:
-            items = amazon.get_items([asin])  # ✅ get_items はリストを返す
-            if items and isinstance(items, list):
-                item = items[0]
-                title = item.title or ""
-                url = item.detail_page_url or ""
-                price = item.list_price or ""
-                pub_date = item.publication_date or ""
-                desc = item.features[0] if item.features else ""
+
+        # ✅ 修正ポイント：複数ASINをまとめて取得
+        items_response = amazon.get_items(*asin_list)
+
+        # ✅ 修正後の安全なパース
+        if items_response and hasattr(items_response, "items"):
+            for info in items_response.items:
+                title = getattr(info, "title", "")
+                url = getattr(info, "detail_page_url", "")
+                price = getattr(info, "list_price", "")
+                pub_date = getattr(info, "publication_date", "")
+                desc = info.features[0] if getattr(info, "features", []) else ""
+
                 results.append([title, url, pub_date, price, desc])
+        else:
+            return jsonify({"error": "No items returned from API"}), 500
 
         write_to_sheet(spreadsheet_id, sheet_name, results)
         return jsonify({"message": f"{len(results)} items written to sheet '{sheet_name}'"}), 200
