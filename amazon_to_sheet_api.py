@@ -20,13 +20,13 @@ GCP_CREDENTIALS_JSON = os.getenv("GCP_CREDENTIALS_JSON")
 amazon = AmazonApi(ACCESS_KEY, SECRET_KEY, ASSOCIATE_TAG, LOCALE)
 
 # === スプレッドシートへ出力 ===
-def write_to_sheet(spreadsheet_id, sheet_name, rows):
+def write_to_sheet(spreadsheet_id, sheet_name, rows, headers):
     creds_dict = eval(GCP_CREDENTIALS_JSON)
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPES)
     client = gspread.authorize(creds)
     sheet = client.open_by_key(spreadsheet_id).worksheet(sheet_name)
     sheet.clear()
-    sheet.append_row(["商品名", "URL", "発売日", "価格", "説明"])
+    sheet.append_row(headers)
     for row in rows:
         sheet.append_row(row)
 
@@ -56,9 +56,10 @@ def amazon_search():
             pub_date = item.publication_date or ""
             desc = item.features[0] if item.features else ""
 
-            results.append([title, url, pub_date, price, desc])
+            results.append([title, url, pub_date, price, "", "", desc])  # 一応カラム合わせ
 
-        write_to_sheet(spreadsheet_id, sheet_name, results)
+        headers = ["商品名", "URL", "発売日", "現在価格", "元価格", "割引率", "説明"]
+        write_to_sheet(spreadsheet_id, sheet_name, results, headers)
         return jsonify({"message": f"{len(results)} items written to sheet '{sheet_name}'"}), 200
 
     except Exception as e:
@@ -76,24 +77,48 @@ def amazon_asin_search():
         if not asin_list or not spreadsheet_id:
             return jsonify({"error": "Missing ASINs or spreadsheet_id"}), 400
 
-        items_response = amazon.get_items(asin_list)
-        items = items_response.items_result.items if items_response.items_result else []
+        items = amazon.get_items(asin_list)
 
         results = []
         for info in items:
             try:
                 title = info.item_info.title.display_value if info.item_info and info.item_info.title else ""
                 url = info.detail_page_url or ""
-                price = info.offers.listings[0].price.display_amount if info.offers and info.offers.listings else ""
                 pub_date = info.item_info.product_info.release_date.display_value if info.item_info.product_info and info.item_info.product_info.release_date else ""
+
+                offer = info.offers.listings[0] if info.offers and info.offers.listings else None
+                price = offer.price.display_amount if offer and offer.price else ""
+                list_price = offer.saving_basis.display_amount if offer and offer.saving_basis else ""
+                discount_percent = offer.savings.percentage if offer and offer.savings else ""
+
+                # 割引率を自前で算出
+                if not discount_percent and offer and offer.price and offer.saving_basis:
+                    try:
+                        current = float(offer.price.amount)
+                        original = float(offer.saving_basis.amount)
+                        if original > current:
+                            discount_percent = round((original - current) / original * 100)
+                    except:
+                        discount_percent = ""
+
                 desc = info.item_info.features.display_values[0] if info.item_info.features and info.item_info.features.display_values else ""
 
-                results.append([title, url, pub_date, price, desc])
+                results.append([
+                    title,
+                    url,
+                    pub_date,
+                    price,
+                    list_price,
+                    f"{discount_percent}%" if discount_percent else "",
+                    desc
+                ])
+
             except Exception as item_error:
                 print(f"⚠️ 商品処理スキップ: {item_error}")
                 continue
 
-        write_to_sheet(spreadsheet_id, sheet_name, results)
+        headers = ["商品名", "URL", "発売日", "現在価格", "元価格", "割引率", "説明"]
+        write_to_sheet(spreadsheet_id, sheet_name, results, headers)
         return jsonify({"message": f"{len(results)} items written to sheet '{sheet_name}'"}), 200
 
     except Exception as e:
