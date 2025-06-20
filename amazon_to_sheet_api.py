@@ -1,54 +1,61 @@
 from flask import Flask, request, jsonify
 import os
 import json
+from amazon.paapi import AmazonApi
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from amazon_paapi import AmazonApi
 
 app = Flask(__name__)
 
-# === Amazon API 認証情報 ===
-ACCESS_KEY = os.getenv("AMAZON_ACCESS_KEY")
-SECRET_KEY = os.getenv("AMAZON_SECRET_KEY")
-ASSOCIATE_TAG = os.getenv("AMAZON_ASSOCIATE_TAG")
-LOCALE = "JP"
+# ========================
+# 認証テスト用エンドポイント
+# ========================
+@app.route("/test-credentials")
+def test_credentials():
+    try:
+        credentials_json = os.getenv("GOOGLE_CREDENTIALS")
+        if not credentials_json:
+            return jsonify({"error": "No key could be detected."}), 500
 
-# === Google Sheets API 認証情報（Renderのキー名に合わせた）===
-SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-GCP_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS")  # ← 修正済み！
+        creds_dict = json.loads(credentials_json)
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
 
-# === Amazon API クライアント初期化 ===
-amazon = AmazonApi(ACCESS_KEY, SECRET_KEY, ASSOCIATE_TAG, LOCALE)
+        # 動作確認用のメール返却
+        return jsonify({"client_email": creds_dict.get("client_email"), "message": "✅ 認証情報を正常に読み込みました"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-# === スプレッドシート出力 ===
-def write_to_sheet(spreadsheet_id, sheet_name, rows, headers):
-    if not GCP_CREDENTIALS_JSON:
-        raise ValueError("❌ 環境変数 GOOGLE_CREDENTIALS が設定されていません")
-    creds_dict = json.loads(GCP_CREDENTIALS_JSON)
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPES)
+# ========================
+# Amazon API 認証
+# ========================
+amazon = AmazonApi(
+    access_key=os.getenv("AMAZON_ACCESS_KEY"),
+    secret_key=os.getenv("AMAZON_SECRET_KEY"),
+    tag=os.getenv("AMAZON_ASSOCIATE_TAG"),
+    country="JP"
+)
+
+# ========================
+# スプレッドシート書き込み関数
+# ========================
+def write_to_sheet(spreadsheet_id, sheet_name, data, headers):
+    credentials_json = os.getenv("GOOGLE_CREDENTIALS")
+    creds_dict = json.loads(credentials_json)
+    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
+
     sheet = client.open_by_key(spreadsheet_id).worksheet(sheet_name)
     sheet.clear()
     sheet.append_row(headers)
-    for row in rows:
+    for row in data:
         sheet.append_row(row)
 
-# === テストエンドポイント ===
-@app.route("/test-credentials")
-def test_credentials():
-    raw = os.getenv("GOOGLE_CREDENTIALS")
-    if not raw:
-        return jsonify({"error": "環境変数 GOOGLE_CREDENTIALS が読み込めません"}), 500
-    try:
-        creds_dict = json.loads(raw)
-        return jsonify({
-            "message": "✅ 認証情報を正常に読み込みました",
-            "client_email": creds_dict.get("client_email", "（なし）")
-        })
-    except Exception as e:
-        return jsonify({"error": f"JSON読み込みエラー: {str(e)}"}), 500
-
-# === /amazon-asin-search エンドポイント（ASINから商品情報取得）===
+# ========================
+# ASIN検索エンドポイント
+# ========================
 @app.route("/amazon-asin-search", methods=["POST"])
 def amazon_asin_search():
     try:
@@ -61,9 +68,9 @@ def amazon_asin_search():
             return jsonify({"error": "Missing ASINs or spreadsheet_id"}), 400
 
         items = amazon.get_items(asin_list)
-
         results = []
-        for info in items:
+
+        for asin, info in zip(asin_list, items):
             try:
                 title = info.item_info.title.display_value if info.item_info and info.item_info.title else ""
                 url = info.detail_page_url or ""
@@ -95,8 +102,11 @@ def amazon_asin_search():
                     desc
                 ])
             except Exception as item_error:
-                print(f"⚠️ 商品処理スキップ: {item_error}")
+                print(f"⚠️ {asin} スキップ: {item_error}")
                 continue
+
+        if not results:
+            return jsonify({"error": "取得に失敗しました。ASINデータが正しく取得できていない可能性があります"}), 500
 
         headers = ["商品名", "URL", "発売日", "現在価格", "元価格", "割引率", "説明"]
         write_to_sheet(spreadsheet_id, sheet_name, results, headers)
@@ -106,7 +116,9 @@ def amazon_asin_search():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# === 起動エントリポイント ===
+# ========================
+# アプリ起動（ローカル用）
+# ========================
 if __name__ == "__main__":
     app.run(debug=True)
 
