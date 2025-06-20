@@ -15,7 +15,7 @@ LOCALE = "JP"
 
 # === Google Sheets API 認証情報 ===
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-GCP_CREDENTIALS_JSON = os.getenv("GCP_CREDENTIALS_JSON")
+GCP_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS")
 
 # === Amazon API クライアント初期化 ===
 amazon = AmazonApi(ACCESS_KEY, SECRET_KEY, ASSOCIATE_TAG, LOCALE)
