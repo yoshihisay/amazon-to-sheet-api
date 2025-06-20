@@ -13,10 +13,6 @@ SECRET_KEY = os.getenv("AMAZON_SECRET_KEY")
 ASSOCIATE_TAG = os.getenv("AMAZON_ASSOCIATE_TAG")
 LOCALE = "JP"
 
-# === Google Sheets API 認証情報 ===
-SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-GCP_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS")
-
 # Amazon API を明示的に初期化（修正済み）
 amazon = AmazonApi(
     key=ACCESS_KEY,
@@ -25,10 +21,14 @@ amazon = AmazonApi(
     country=LOCALE
 )
 
-# === スプレッドシートへ書き込み ===
+# === Google Sheets API 認証情報（Renderのキー名）===
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+GCP_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS")
+
+# === スプレッドシート書き込み処理 ===
 def write_to_sheet(spreadsheet_id, sheet_name, rows, headers):
     if not GCP_CREDENTIALS_JSON:
-        raise ValueError("❌ GOOGLE_CREDENTIALS が未設定です")
+        raise ValueError("❌ 環境変数 GOOGLE_CREDENTIALS が設定されていません")
     creds_dict = json.loads(GCP_CREDENTIALS_JSON)
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPES)
     client = gspread.authorize(creds)
@@ -38,7 +38,7 @@ def write_to_sheet(spreadsheet_id, sheet_name, rows, headers):
     for row in rows:
         sheet.append_row(row)
 
-# === 認証確認エンドポイント ===
+# === テストエンドポイント ===
 @app.route("/test-credentials")
 def test_credentials():
     raw = os.getenv("GOOGLE_CREDENTIALS")
@@ -53,7 +53,7 @@ def test_credentials():
     except Exception as e:
         return jsonify({"error": f"JSON読み込みエラー: {str(e)}"}), 500
 
-# === /amazon-asin-search ===
+# === /amazon-asin-search エンドポイント ===
 @app.route("/amazon-asin-search", methods=["POST"])
 def amazon_asin_search():
     try:
@@ -63,7 +63,7 @@ def amazon_asin_search():
         sheet_name = data.get("sheet_name", "AmazonASIN出力")
 
         if not asin_list or not spreadsheet_id:
-            return jsonify({"error": "ASIN または spreadsheet_id が不足しています"}), 400
+            return jsonify({"error": "Missing ASINs or spreadsheet_id"}), 400
 
         items = amazon.get_items(asin_list)
 
@@ -106,12 +106,12 @@ def amazon_asin_search():
         headers = ["商品名", "URL", "発売日", "現在価格", "元価格", "割引率", "説明"]
         write_to_sheet(spreadsheet_id, sheet_name, results, headers)
 
-        return jsonify({"message": f"{len(results)} 件の商品情報を書き込みました"}), 200
+        return jsonify({"message": f"{len(results)} items written to sheet '{sheet_name}'"}), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# === ローカル起動時 ===
+# === アプリ起動 ===
 if __name__ == "__main__":
     app.run(debug=True)
 
