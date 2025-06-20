@@ -14,10 +14,11 @@ ASSOCIATE_TAG = os.getenv("AMAZON_ASSOCIATE_TAG")
 LOCALE = "JP"
 
 # Amazon API を明示的に初期化
+# Amazon API を明示的に初期化（修正済み）
 amazon = AmazonApi(
-    access_key=ACCESS_KEY,
-    secret_key=SECRET_KEY,
-    partner_tag=ASSOCIATE_TAG,
+    key=ACCESS_KEY,
+    secret=SECRET_KEY,
+    tag=ASSOCIATE_TAG,
     country=LOCALE
 )
 
