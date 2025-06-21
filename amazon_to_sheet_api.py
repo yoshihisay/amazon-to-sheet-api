@@ -13,7 +13,12 @@ SECRET_KEY = os.getenv("AMAZON_SECRET_KEY")
 ASSOCIATE_TAG = os.getenv("AMAZON_ASSOCIATE_TAG")
 LOCALE = "JP"
 
-# Amazon API を明示的に初期化（修正済み）
+# 🔍 デバッグ出力（必要に応じてON）
+print("🔑 ACCESS_KEY:", bool(ACCESS_KEY))
+print("🔑 SECRET_KEY:", bool(SECRET_KEY))
+print("🔑 ASSOCIATE_TAG:", bool(ASSOCIATE_TAG))
+
+# ✅ Amazon API 初期化（必ず明示的に渡す！）
 amazon = AmazonApi(
     key=ACCESS_KEY,
     secret=SECRET_KEY,
@@ -21,11 +26,10 @@ amazon = AmazonApi(
     country=LOCALE
 )
 
-# === Google Sheets API 認証情報（Renderのキー名）===
+# === Google Sheets API 認証情報 ===
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 GCP_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS")
 
-# === スプレッドシート書き込み処理 ===
 def write_to_sheet(spreadsheet_id, sheet_name, rows, headers):
     if not GCP_CREDENTIALS_JSON:
         raise ValueError("❌ 環境変数 GOOGLE_CREDENTIALS が設定されていません")
@@ -38,7 +42,6 @@ def write_to_sheet(spreadsheet_id, sheet_name, rows, headers):
     for row in rows:
         sheet.append_row(row)
 
-# === テストエンドポイント ===
 @app.route("/test-credentials")
 def test_credentials():
     raw = os.getenv("GOOGLE_CREDENTIALS")
@@ -53,7 +56,6 @@ def test_credentials():
     except Exception as e:
         return jsonify({"error": f"JSON読み込みエラー: {str(e)}"}), 500
 
-# === /amazon-asin-search エンドポイント ===
 @app.route("/amazon-asin-search", methods=["POST"])
 def amazon_asin_search():
     try:
@@ -66,8 +68,8 @@ def amazon_asin_search():
             return jsonify({"error": "Missing ASINs or spreadsheet_id"}), 400
 
         items = amazon.get_items(asin_list)
-
         results = []
+
         for info in items:
             try:
                 title = info.item_info.title.display_value if info.item_info and info.item_info.title else ""
@@ -75,13 +77,14 @@ def amazon_asin_search():
                 pub_date = info.item_info.product_info.release_date.display_value if info.item_info.product_info and info.item_info.product_info.release_date else ""
 
                 offer = info.offers.listings[0] if info.offers and info.offers.listings else None
-                price = offer.price.display_amount if offer and hasattr(offer, "price") and offer.price else ""
-                list_price = offer.saving_basis.display_amount if offer and hasattr(offer, "saving_basis") and offer.saving_basis else ""
-
+                price = offer.price.display_amount if offer and offer.price else ""
+                list_price = offer.saving_basis.display_amount if offer and offer.saving_basis else ""
                 discount_percent = ""
-                if hasattr(offer, "savings") and offer.savings:
+
+                # 🔧 savings 対応：存在しない可能性に対応
+                if offer and hasattr(offer, 'savings') and offer.savings and hasattr(offer.savings, 'percentage'):
                     discount_percent = offer.savings.percentage
-                elif offer and hasattr(offer, "price") and hasattr(offer, "saving_basis"):
+                elif offer and offer.price and offer.saving_basis:
                     try:
                         current = float(offer.price.amount)
                         original = float(offer.saving_basis.amount)
@@ -113,7 +116,5 @@ def amazon_asin_search():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# === アプリ起動 ===
 if __name__ == "__main__":
     app.run(debug=True)
-
