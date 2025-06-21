@@ -2,7 +2,7 @@ import os
 import json
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
-from amazon.paapi import AmazonApi
+from paapi import AmazonApi
 import gspread
 from google.oauth2 import service_account
 
