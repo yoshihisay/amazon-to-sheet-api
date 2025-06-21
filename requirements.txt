@@ -3,4 +3,4 @@ gspread
 oauth2client
 gunicorn
 python-dotenv
-amazon-paapi @ git+https://github.com/sergioteula/python-amazon-paapi.git@master#egg=amazon-paapi
+python-amazon-paapi @ git+https://github.com/sergioteula/python-amazon-paapi.git@master#egg=python-amazon-paapi
