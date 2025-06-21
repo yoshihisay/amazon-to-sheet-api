@@ -7,18 +7,17 @@ from amazon_paapi import AmazonApi
 
 app = Flask(__name__)
 
-# === Amazon API 認証情報 ===
+# Amazon API 認証
 ACCESS_KEY = os.getenv("AMAZON_ACCESS_KEY")
 SECRET_KEY = os.getenv("AMAZON_SECRET_KEY")
 ASSOCIATE_TAG = os.getenv("AMAZON_ASSOCIATE_TAG")
 LOCALE = "JP"
 
-# 🔍 デバッグ出力（必要に応じてON）
-print("🔑 ACCESS_KEY:", bool(ACCESS_KEY))
-print("🔑 SECRET_KEY:", bool(SECRET_KEY))
-print("🔑 ASSOCIATE_TAG:", bool(ASSOCIATE_TAG))
+# Google 認証
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+GCP_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS")
 
-# ✅ Amazon API 初期化（必ず明示的に渡す！）
+# AmazonAPI 初期化
 amazon = AmazonApi(
     key=ACCESS_KEY,
     secret=SECRET_KEY,
@@ -26,13 +25,8 @@ amazon = AmazonApi(
     country=LOCALE
 )
 
-# === Google Sheets API 認証情報 ===
-SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-GCP_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS")
-
+# Google Sheets 書き込み
 def write_to_sheet(spreadsheet_id, sheet_name, rows, headers):
-    if not GCP_CREDENTIALS_JSON:
-        raise ValueError("❌ 環境変数 GOOGLE_CREDENTIALS が設定されていません")
     creds_dict = json.loads(GCP_CREDENTIALS_JSON)
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPES)
     client = gspread.authorize(creds)
@@ -41,20 +35,6 @@ def write_to_sheet(spreadsheet_id, sheet_name, rows, headers):
     sheet.append_row(headers)
     for row in rows:
         sheet.append_row(row)
-
-@app.route("/test-credentials")
-def test_credentials():
-    raw = os.getenv("GOOGLE_CREDENTIALS")
-    if not raw:
-        return jsonify({"error": "環境変数 GOOGLE_CREDENTIALS が読み込めません"}), 500
-    try:
-        creds_dict = json.loads(raw)
-        return jsonify({
-            "message": "✅ 認証情報を正常に読み込みました",
-            "client_email": creds_dict.get("client_email", "（なし）")
-        })
-    except Exception as e:
-        return jsonify({"error": f"JSON読み込みエラー: {str(e)}"}), 500
 
 @app.route("/amazon-asin-search", methods=["POST"])
 def amazon_asin_search():
@@ -79,33 +59,28 @@ def amazon_asin_search():
                 offer = info.offers.listings[0] if info.offers and info.offers.listings else None
                 price = offer.price.display_amount if offer and offer.price else ""
                 list_price = offer.saving_basis.display_amount if offer and offer.saving_basis else ""
-                discount_percent = ""
 
-                # 🔧 savings 対応：存在しない可能性に対応
-                if offer and hasattr(offer, 'savings') and offer.savings and hasattr(offer.savings, 'percentage'):
-                    discount_percent = offer.savings.percentage
+                # 割引率の安全な取得
+                discount_percent = ""
+                if hasattr(offer, "savings") and offer.savings and hasattr(offer.savings, "percentage"):
+                    discount_percent = f"{offer.savings.percentage}%"
                 elif offer and offer.price and offer.saving_basis:
                     try:
                         current = float(offer.price.amount)
                         original = float(offer.saving_basis.amount)
                         if original > current:
-                            discount_percent = round((original - current) / original * 100)
+                            discount_percent = f"{round((original - current) / original * 100)}%"
                     except:
                         discount_percent = ""
 
                 desc = info.item_info.features.display_values[0] if info.item_info.features and info.item_info.features.display_values else ""
 
                 results.append([
-                    title,
-                    url,
-                    pub_date,
-                    price,
-                    list_price,
-                    f"{discount_percent}%" if discount_percent else "",
-                    desc
+                    title, url, pub_date, price, list_price, discount_percent, desc
                 ])
-            except Exception as item_error:
-                print(f"⚠️ 商品処理スキップ: {item_error}")
+
+            except Exception as e:
+                print(f"⚠️ 商品処理スキップ: {e}")
                 continue
 
         headers = ["商品名", "URL", "発売日", "現在価格", "元価格", "割引率", "説明"]
@@ -116,5 +91,22 @@ def amazon_asin_search():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# テスト用
+@app.route("/test-credentials")
+def test_credentials():
+    try:
+        raw = os.getenv("GOOGLE_CREDENTIALS")
+        if not raw:
+            return jsonify({"error": "環境変数 GOOGLE_CREDENTIALS が設定されていません"})
+        creds_dict = json.loads(raw)
+        return jsonify({
+            "client_email": creds_dict.get("client_email", "なし"),
+            "message": "✅ 認証情報を正常に読み込みました"
+        })
+    except Exception as e:
+        return jsonify({"error": f"JSON読み込みエラー: {str(e)}"})
+
+# 起動
 if __name__ == "__main__":
     app.run(debug=True)
+
