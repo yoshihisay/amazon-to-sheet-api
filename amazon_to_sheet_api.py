@@ -75,11 +75,13 @@ def amazon_asin_search():
                 pub_date = info.item_info.product_info.release_date.display_value if info.item_info.product_info and info.item_info.product_info.release_date else ""
 
                 offer = info.offers.listings[0] if info.offers and info.offers.listings else None
-                price = offer.price.display_amount if offer and offer.price else ""
-                list_price = offer.saving_basis.display_amount if offer and offer.saving_basis else ""
-                discount_percent = offer.savings.percentage if offer and offer.savings else ""
+                price = offer.price.display_amount if offer and hasattr(offer, "price") and offer.price else ""
+                list_price = offer.saving_basis.display_amount if offer and hasattr(offer, "saving_basis") and offer.saving_basis else ""
 
-                if not discount_percent and offer and offer.price and offer.saving_basis:
+                discount_percent = ""
+                if hasattr(offer, "savings") and offer.savings:
+                    discount_percent = offer.savings.percentage
+                elif offer and hasattr(offer, "price") and hasattr(offer, "saving_basis"):
                     try:
                         current = float(offer.price.amount)
                         original = float(offer.saving_basis.amount)
