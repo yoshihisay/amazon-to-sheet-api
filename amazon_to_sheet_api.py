@@ -1,117 +1,117 @@
-from flask import Flask, request, jsonify
 import os
 import json
+from flask import Flask, request, jsonify
+from dotenv import load_dotenv
+from amazon.paapi import AmazonApi
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-from amazon_paapi import AmazonApi
+from google.oauth2 import service_account
+
+# 環境変数の読み込み（Render環境では不要だがローカル検証用に）
+load_dotenv()
 
 app = Flask(__name__)
 
-# === Amazon API 認証情報 ===
-ACCESS_KEY = os.getenv("AMAZON_ACCESS_KEY")
-SECRET_KEY = os.getenv("AMAZON_SECRET_KEY")
-ASSOCIATE_TAG = os.getenv("AMAZON_ASSOCIATE_TAG")
-LOCALE = "JP"
+@app.route("/")
+def home():
+    return "Amazon to Sheet API is running."
 
-# === Google Sheets API 認証情報 ===
-SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-GCP_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS")
+@app.route("/amazon-to-sheet", methods=["POST"])
+def amazon_to_sheet():
+    data = request.json
+    keyword = data.get("keyword")
+    sheet_name = data.get("sheet_name", "Amazon出力")
 
-# === Amazon API 初期化（引数を明示）===
-amazon = AmazonApi(
-    key=ACCESS_KEY,
-    secret=SECRET_KEY,
-    tag=ASSOCIATE_TAG,
-    country=LOCALE
-)
+    if not keyword:
+        return jsonify({"error": "キーワードが指定されていません。"}), 400
 
-# === スプレッドシート出力 ===
-def write_to_sheet(spreadsheet_id, sheet_name, rows, headers):
-    if not GCP_CREDENTIALS_JSON:
-        raise ValueError("❌ GOOGLE_CREDENTIALS が未設定です")
-    creds_dict = json.loads(GCP_CREDENTIALS_JSON)
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPES)
-    client = gspread.authorize(creds)
-    sheet = client.open_by_key(spreadsheet_id).worksheet(sheet_name)
-    sheet.clear()
-    sheet.append_row(headers)
-    for row in rows:
-        sheet.append_row(row)
-
-# === テストエンドポイント ===
-@app.route("/test-credentials")
-def test_credentials():
-    raw = os.getenv("GOOGLE_CREDENTIALS")
-    if not raw:
-        return jsonify({"error": "環境変数 GOOGLE_CREDENTIALS が読み込めません"}), 500
     try:
-        creds_dict = json.loads(raw)
-        return jsonify({
-            "message": "✅ 認証情報を正常に読み込みました",
-            "client_email": creds_dict.get("client_email", "（なし）")
-        })
-    except Exception as e:
-        return jsonify({"error": f"JSON読み込みエラー: {str(e)}"}), 500
+        amazon = AmazonApi(
+            access_key=os.getenv("AMAZON_ACCESS_KEY"),
+            secret_key=os.getenv("AMAZON_SECRET_KEY"),
+            associate_tag=os.getenv("AMAZON_ASSOCIATE_TAG"),
+            country="JP"
+        )
 
-# === /amazon-asin-search エンドポイント ===
-@app.route("/amazon-asin-search", methods=["POST"])
-def amazon_asin_search():
-    try:
-        data = request.get_json()
-        asin_list = data.get("asin_list", [])
-        spreadsheet_id = data.get("spreadsheet_id")
-        sheet_name = data.get("sheet_name", "AmazonASIN出力")
+        response = amazon.search_items(keywords=keyword, search_index="All")
+        items = []
 
-        if not asin_list or not spreadsheet_id:
-            return jsonify({"error": "ASINリストまたはスプレッドシートIDが不足しています"}), 400
+        for item in response.items:
+            asin = item.asin
+            title = item.item_info.title.display_value if item.item_info.title else ""
+            url = item.detail_page_url
+            price = ""
 
-        items = amazon.get_items(asin_list)
-        results = []
-
-        for info in items:
             try:
-                title = info.item_info.title.display_value if info.item_info and info.item_info.title else ""
-                url = info.detail_page_url or ""
-                pub_date = info.item_info.product_info.release_date.display_value if info.item_info.product_info and info.item_info.product_info.release_date else ""
-                desc = info.item_info.features.display_values[0] if info.item_info.features and info.item_info.features.display_values else ""
+                price = item.offers.listings[0].price.display_amount
+            except:
+                price = "価格情報なし"
 
-                offer = info.offers.listings[0] if info.offers and info.offers.listings else None
-                price = offer.price.display_amount if offer and offer.price else ""
-                list_price = offer.saving_basis.display_amount if offer and offer.saving_basis else ""
-                discount_percent = ""
+            items.append([asin, title, price, url])
 
-                # savingsが無いときは手動計算
-                try:
-                    if offer and offer.price and offer.saving_basis:
-                        current = float(offer.price.amount)
-                        original = float(offer.saving_basis.amount)
-                        if original > current:
-                            discount_percent = f"{round((original - current) / original * 100)}%"
-                except Exception as calc_err:
-                    print(f"⚠️ 割引率計算エラー: {calc_err}")
+        # Google Sheets 書き込み
+        credentials = service_account.Credentials.from_service_account_info(json.loads(os.environ["GOOGLE_CREDENTIALS"]))
+        gc = gspread.authorize(credentials)
+        sh = gc.open_by_key(os.environ["GOOGLE_SHEET_ID"])
+        worksheet = sh.worksheet(sheet_name)
+        worksheet.clear()
+        worksheet.append_row(["ASIN", "タイトル", "価格", "URL"])
+        for row in items:
+            worksheet.append_row(row)
 
-                results.append([
-                    title,
-                    url,
-                    pub_date,
-                    price,
-                    list_price,
-                    discount_percent,
-                    desc
-                ])
-            except Exception as item_error:
-                print(f"⚠️ 商品処理スキップ: {item_error}")
-                continue
-
-        headers = ["商品名", "URL", "発売日", "現在価格", "元価格", "割引率", "説明"]
-        write_to_sheet(spreadsheet_id, sheet_name, results, headers)
-
-        return jsonify({"message": f"{len(results)}件の商品を出力しました"}), 200
+        return jsonify({"message": "出力成功", "count": len(items)})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# === 起動エントリポイント ===
+
+@app.route("/amazon-asin-to-sheet", methods=["POST"])
+def amazon_asin_to_sheet():
+    data = request.json
+    asin_list = data.get("asins", [])
+    sheet_name = data.get("sheet_name", "AmazonASIN出力")
+
+    if not asin_list:
+        return jsonify({"error": "ASINリストが空です。"}), 400
+
+    try:
+        amazon = AmazonApi(
+            access_key=os.getenv("AMAZON_ACCESS_KEY"),
+            secret_key=os.getenv("AMAZON_SECRET_KEY"),
+            associate_tag=os.getenv("AMAZON_ASSOCIATE_TAG"),
+            country="JP"
+        )
+
+        response = amazon.get_items(asin_list)
+        items = []
+
+        for item in response.items_result.items:
+            asin = item.asin
+            title = item.item_info.title.display_value if item.item_info.title else ""
+            url = item.detail_page_url
+            price = ""
+
+            try:
+                price = item.offers.listings[0].price.display_amount
+            except:
+                price = "価格情報なし"
+
+            items.append([asin, title, price, url])
+
+        credentials = service_account.Credentials.from_service_account_info(json.loads(os.environ["GOOGLE_CREDENTIALS"]))
+        gc = gspread.authorize(credentials)
+        sh = gc.open_by_key(os.environ["GOOGLE_SHEET_ID"])
+        worksheet = sh.worksheet(sheet_name)
+        worksheet.clear()
+        worksheet.append_row(["ASIN", "タイトル", "価格", "URL"])
+        for row in items:
+            worksheet.append_row(row)
+
+        return jsonify({"message": "ASIN出力成功", "count": len(items)})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     app.run(debug=True)
 
